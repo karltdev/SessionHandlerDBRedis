@@ -1,4 +1,4 @@
-#Session Handler DB Redis
+# Session Handler DB Redis
 
 This is a Processwire module using Redis as session handler. This is rewritten from a Processwire core module - SessionHandlerDB and borrowed some code from netcarver/PW-SessionHandlerRedis. This module also adds "session" under Setting as the same way as SessionHandlerDB to check the active sessions.
 
