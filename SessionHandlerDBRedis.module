@@ -9,8 +9,8 @@ class SessionHandlerDBRedis extends WireSessionHandler implements Module, Config
 
 	public static function getModuleInfo() {
 		return array(
-			'title' => 'Session Handler Redis', 
-			'version' => 1, 
+			'title' => 'Session Handler DB Redis', 
+			'version' => 0.1, 
 			'summary' => "Installing this module makes ProcessWire store sessions in the redis rather than the file system. Note that this module will log you out after install or uninstall.",
 			'installs' => array('ProcessSessionRedis')
 			);

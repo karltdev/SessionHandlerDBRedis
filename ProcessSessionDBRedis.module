@@ -12,7 +12,7 @@ class ProcessSessionDBRedis extends Process {
 
 	public static function getModuleInfo() {
 		return array(
-			'title' => __('Sessions', __FILE__), // getModuleInfo title          
+			'title' => __('Active Sessions', __FILE__), // getModuleInfo title          
 			'summary' => __('Enables you to browse active redis sessions.', __FILE__), // getModuleInfo summary 
 			'version' => 1, 
 			'permanent' => false, 
