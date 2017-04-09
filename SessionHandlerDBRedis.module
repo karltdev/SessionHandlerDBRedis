@@ -1,0 +1,357 @@
+<?php namespace ProcessWire;
+
+/**
+ * Session handler for storing sessions to Redis
+ *
+ */
+
+class SessionHandlerDBRedis extends WireSessionHandler implements Module, ConfigurableModule {
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => 'Session Handler Redis', 
+			'version' => 1, 
+			'summary' => "Installing this module makes ProcessWire store sessions in the redis rather than the file system. Note that this module will log you out after install or uninstall.",
+			'installs' => array('ProcessSessionRedis')
+			);
+	}
+
+	protected $redis; 
+
+	public function __construct() {
+		parent::__construct();
+		$this->redis = $this->connect();
+	}
+	
+	public function init() {
+		parent::init();
+		$this->wire('session')->set($this, 'ts', time()); 
+		
+	}
+
+    protected function key($id)
+    {
+        return $id;
+    }
+
+    protected function _open($redis) {
+        if (null === $redis) {
+            $redis = $this->connect();
+        }
+        return $redis;
+    }
+
+    public function connect(){
+        $this->configData = wire('modules')->getModuleConfigData($this);
+
+        $this->host = (!$this->configData["host"])?'127.0.0.1':$this->configData["host"];
+        $this->port = (!$this->configData["port"])?6379:$this->configData["port"];
+        $this->dbi = (!$this->configData["dbi"])?180000:$this->configData["dbi"];
+        $this->expire = (!$this->configData["expire"])?180000:$this->configData["expire"];
+        $this->prefix = (!$this->configData["prefix"])?'SESSION:':$this->configData["prefix"];
+
+        $redis = new \Redis();
+        $connected = @$redis->pconnect($this->host, $this->port, 1);
+        if(!$connected){
+        	$redis->pconnect('127.0.0.1', $this->port);
+        	$this->connectedTo = 'localhost';
+        }else{
+        	$this->connectedTo = $this->host;
+        }
+        $redis->select($this->dbi);
+
+        return $redis;
+    }
+
+	/**
+	 * Read and return data for session indicated by $id
+	 *
+	 * @param string $id Session ID
+	 * @return string Serialized data or blank string if none
+	 *
+	 */
+	public function read($id) {
+        $key = $this->key($id);
+    	$data = $this->redis->hGet($this->prefix.$key, 'session');
+        $this->redis->expire($this->prefix.$key, $this->expire);
+        if(empty($data)) $data = '';
+        return $data;
+	}
+
+	/**
+	 * Write the given $data for the given session ID
+	 *
+	 * @param string $id Session ID
+	 * @param string Serialized data to write
+	 * @return bool
+	 *
+	 */
+	public function write($id, $data) {
+		$user = $this->wire('user');
+		$page = $this->wire('page');
+		$user_id = $user && $user->id ? (int) $user->id : 0; 
+		$pages_id = $page && $page->id ? (int) $page->id : 0;
+		$ua = ($this->useUA && isset($_SERVER['HTTP_USER_AGENT'])) ? substr(strip_tags($_SERVER['HTTP_USER_AGENT']), 0, 255) : '';
+		$ip = $this->useIP ? ((int) $this->wire('session')->getIP(true)) : '';
+		$time = time();
+        $key = $this->key($id);
+        $values = array(
+        	'session' => $data, 
+        	'user_id' => $user_id, 
+        	'page_id' => $pages_id,
+        	'ts' => $time
+        );
+		if($ip) {
+			$values['ip'] = $ip;
+		}
+		if($ua) {
+			$values['ua'] = $ua;
+		}
+        $this->redis->hMSet($this->prefix.$key, $values);
+        $this->redis->zAdd('ts', $time, $key);
+        $this->redis->expire($this->prefix.$key, $this->expire);
+        return true;
+	}
+
+	/**
+	 * Destroy the session indicated by the given session ID
+	 *
+	 * @param string $id Session ID
+	 * @return bool True on success, false on failure 
+	 *
+	 */
+	public function destroy($id) {
+        $key = $this->key($id);
+        $this->redis->del($key);
+        $secure = $this->wire('config')->sessionCookieSecure ? (bool) $this->config->https : false;
+		setcookie(session_name(), '', time()-42000, '/', $this->config->sessionCookieDomain, $secure, true);
+        return true;
+	}
+
+	/**
+	 * Garbage collection: remove stale sessions
+	 *
+	 * @param int $seconds Max lifetime of a session
+	 * @return bool True on success, false on failure
+	 *
+	 */
+	public function gc($seconds) {
+	}
+
+	/**
+	 * Install sessions table
+	 *
+	 */
+	public function ___install() {
+        // check if phpredis installed
+        if(!class_exists('\Redis')){
+        	$msg = __("Please install phpredis to local machine", __FILE__);
+
+            throw new \WireException($msg);
+        }else{
+        	$redis = $this->connect();
+        	if($redis->ping() == "+PONG"){
+        		$this->message(__("Redis connection OK.", __FILE__));
+        	}else{
+				$msg = __("Cannot connect to redis, please make sure redis is installed on the local machine", __FILE__);
+
+	            throw new \WireException($msg);
+        	}
+        }
+
+        
+	}
+
+	/**
+	 * Drop sessions table
+	 *
+	 */
+	public function ___uninstall() {
+		
+	}
+
+	/**
+	 * Session configuration options
+	 *
+	 */
+	public function getModuleConfigInputfields(array $data) {
+
+        $form = new InputfieldWrapper();
+        $m      = wire('modules');
+
+        try {
+            $redis = self::_open(null);
+            $redis_ok = true;
+        } catch (\Exception $e) {
+            $redis_ok = false;
+        }
+
+        $f = $m->get("InputfieldMarkup");
+        $f->label = __("Redis connection status", __FILE__);
+        if ($redis_ok) {
+            $status = "<span style='color:green'>&#10004;".__( "Connected", __FILE__)."</span>";
+        } else {
+            $status = "<span style='color:red'>&#10008;".__( "Connection Fail", __FILE__)."</span>";
+        }
+        $f->value = "<p>$status to $this->connectedTo</p>";
+
+        $form->add($f);
+
+		$f = $m->get("InputfieldText");
+        $f->label = __('Host');
+        $f->description = __('This is the host used to connect to redis. If connection failed, fall back to localhost.');
+        $f->attr('id+name', 'host');
+        $f->attr('value', empty($data['host']) ? '127.0.0.1' : $data['host']);
+        $form->add($f);
+
+        $f = $m->get("InputfieldText");
+        $f->label = __('Port');
+        $f->description = __('This is the port used to connect to redis.');
+        $f->attr('id+name', 'port');
+        $f->attr('value', empty($data['port']) ? '6379' : $data['port']);
+        $form->add($f);
+
+        $f = $m->get("InputfieldText");
+        $f->label = __('Database Index');
+        $f->description = __('This is the redis database index.');
+        $f->attr('id+name', 'dbi');
+        $f->attr('value', empty($data['dbi']) ? 0 : $data['dbi']);
+        $form->add($f);
+
+        $f = $m->get("InputfieldText");
+        $f->label = __('Prefix');
+        $f->description = __('This is the prefix for redis key generation.');
+        $f->attr('id+name', 'prefix');
+        $f->attr('value', empty($data['prefix']) ? 'SESSION:' : $data['prefix']);
+        $form->add($f);
+
+        $f = $m->get("InputfieldText");
+        $f->label = __('Expiry');
+        $f->description = __('This is the expiry for session.');
+        $f->attr('id+name', 'expire');
+        $f->attr('value', empty($data['expire']) ? 180000 : $data['expire']);
+        $form->add($f);
+
+		$description = $this->_('Checking this box will enable the data to be displayed in your admin sessions list.');
+        $f = $m->get('InputfieldCheckbox'); 
+        $f->attr('name', 'useIP'); 
+        $f->attr('value', 1);
+        $f->attr('checked', empty($data['useIP']) ? '' : 'checked'); 
+        $f->label = $this->_('Track IP addresses in session data?');
+        $f->description = $description;
+        $form->add($f);
+
+        $f = $m->get('InputfieldCheckbox'); 
+        $f->attr('name', 'useUA'); 
+        $f->attr('value', 1);
+        $f->attr('checked', empty($data['useUA']) ? '' : 'checked'); 
+        $f->label = $this->_('Track user agent in session data?');
+        $f->notes = $this->_('The user agent typically contains information about the browser being used.');
+        $f->description = $description;
+        $form->add($f);
+
+
+        return $form;
+	}
+
+	/**
+	 * Provides direct reference access to set values in the $data array
+	 *
+	 * For some reason PHP 5.4+ requires this, as it apparently doesn't see WireData
+	 * 
+	 * @param string $key
+	 * @param mixed $value
+	 *
+	 */
+	public function __set($key, $value) {
+		$this->set($key, $value);
+	}
+
+
+	/**
+	 * Provides direct reference access to variables in the $data array
+	 *
+	 * For some reason PHP 5.4+ requires this, as it apparently doesn't see WireData
+	 *
+	 * Otherwise the same as get()
+	 *
+	 * @param string $key
+	 * @return mixed
+	 *
+	 */
+	public function __get($key) {
+		return $this->get($key);
+	}
+
+	/**
+	 * Return the number of active sessions in the last 5 mins (300 seconds)
+	 * 
+	 * @param int $seconds Optionally specify number of seconds (rather than 300, 5 minutes)
+	 * @return int
+	 * 
+	 */
+	public function getNumSessions($seconds = 300) {
+		$sessions = array();
+		
+		$it = NULL; /* Initialize our iterator to NULL */
+		while($arr_keys = $redis->scan($it, $this->prefix."*")) {
+		    foreach($arr_keys as $k) {
+		        array_push($sessions, $k);
+		    }
+		}	
+		$numSessions = sizeof($sessions);
+		return $numSessions; 
+	}
+
+	/**
+	 * Get the most recent sessions
+	 * 
+	 * Returns an array of array for each session, which includes all the 
+	 * session info except or the 'data' property. Use the getSessionData()
+	 * method to retrieve that. 
+	 * 
+	 * @param int $seconds Sessions up to this many seconds old
+	 * @param int $limit Max number of sessions to return
+	 * @return array Sessions newest to oldest
+	 * 
+	 */
+	public function getSessions($seconds = 300, $limit = 100) {
+		
+		$seconds = (int) $seconds; 
+		$limit = (int) $limit;
+		$sessions = array();
+		
+		$it = NULL; /* Initialize our iterator to NULL */
+		while($arr_keys = $redis->scan($it, $this->prefix."*", $limit)) {
+		    foreach($arr_keys as $k) {
+		        array_push($sessions, $k);
+		    }
+		}	
+		
+		return $sessions;
+	}
+
+	/**
+	 * Return all session data for the given session ID
+	 * 
+	 * Note that the 'data' property of the returned array contains the values
+	 * that the user has in their $session. 
+	 * 
+	 * @param $sessionID
+	 * @return array Blank array on fail, populated array on success. 
+	 * 
+	 */
+	public function getSessionData($sessionID) {
+		$request = array('user_id', 'page_id','ts');
+		if($this->useIP) {
+			array_push($request, 'ip');
+		}
+		if($this->useUA) {
+			array_push($request, 'ua');
+		}
+		$row = $this->redis->hmget($sessionID, $request);
+		return $row;
+	}
+
+
+}
