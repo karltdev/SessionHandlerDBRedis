@@ -7,7 +7,7 @@ This is a Processwire module using Redis as session handler. This is rewritten f
 2. Installed phpredis on local.
 
 ## How to use
-1. Install the module as other modules.
+1. Install the module.
 2. Configure the module as your needs like the host of Redis server and the prefix for the session.
 3. If it is unable to connect to the defined host, it will fall back to local Redis server.
 
