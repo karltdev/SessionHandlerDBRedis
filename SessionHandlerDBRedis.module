@@ -48,7 +48,7 @@ class SessionHandlerDBRedis extends WireSessionHandler implements Module, Config
         $this->port = (!$this->configData["port"])?6379:$this->configData["port"];
         $this->dbi = (!$this->configData["dbi"])?180000:$this->configData["dbi"];
         $this->expire = (!$this->configData["expire"])?180000:$this->configData["expire"];
-        $this->prefix = (!$this->configData["prefix"])?'SESSION:':$this->configData["prefix"];
+        $this->prefix = (!$this->configData["prefix"])?'PHPSESSID:':$this->configData["prefix"];
 
         $redis = new \Redis();
         $connected = @$redis->pconnect($this->host, $this->port, 1);
@@ -92,7 +92,7 @@ class SessionHandlerDBRedis extends WireSessionHandler implements Module, Config
 		$user_id = $user && $user->id ? (int) $user->id : 0; 
 		$pages_id = $page && $page->id ? (int) $page->id : 0;
 		$ua = ($this->useUA && isset($_SERVER['HTTP_USER_AGENT'])) ? substr(strip_tags($_SERVER['HTTP_USER_AGENT']), 0, 255) : '';
-		$ip = $this->useIP ? ((int) $this->wire('session')->getIP(true)) : '';
+		$ip = $this->useIP ? ($this->forwardIP? ((int) $this->wire('session')->getIP(true,2)) : ((int) $this->wire('session')->getIP(true)) ) : '';
 		$time = time();
         $key = $this->key($id);
         $values = array(
@@ -239,6 +239,16 @@ class SessionHandlerDBRedis extends WireSessionHandler implements Module, Config
         $f->attr('checked', empty($data['useIP']) ? '' : 'checked'); 
         $f->label = $this->_('Track IP addresses in session data?');
         $f->description = $description;
+        $form->add($f);
+
+        $description = $this->_('Checking this box will enable using forwarded IP instead of normal remote IP. You may want to enable this if the HTTP end point is else where.');
+        $f = $m->get('InputfieldCheckbox'); 
+        $f->attr('name', 'forwardIP'); 
+        $f->attr('value', 1);
+        $f->attr('checked', empty($data['forwardIP']) ? '' : 'checked'); 
+        $f->label = $this->_('Use forwarded IP?');
+        $f->description = $description;
+        $f->showIf = "useIP=1";
         $form->add($f);
 
         $f = $m->get('InputfieldCheckbox'); 
