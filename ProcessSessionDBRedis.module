@@ -60,10 +60,7 @@ class ProcessSessionDBRedis extends Process {
 		$time = time();
 		$sessions = $this->redis->zRangeByScore('ts', $time-$mins*60, $time+10);
 		$numRows = sizeof($sessions);
-		function expireTS(HookEvent $e) {
-		    $this->redis->zRemRangeByScore('ts', time()-$expiry, time());
-		}
-		wire()->addHook('LazyCron::everyDay', null, 'expireTS');
+		
 		if($numRows) {
 			if($numRows == $limit) {
 				$numRows = $sessionHandlerRedis->getNumSessions($mins * 60); 		
