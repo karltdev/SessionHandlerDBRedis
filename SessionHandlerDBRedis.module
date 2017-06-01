@@ -363,7 +363,7 @@ LUA;
         $description = $this->_('Checking this box will enable using forwarded IP instead of normal remote IP. You may want to enable this if the HTTP end point is else where.');
         $f = $m->get('InputfieldCheckbox'); 
         $f->attr('name', 'forwardIP'); 
-        $f->attr('value', 1);
+        $f->attr('value', 0);
         $f->attr('checked', empty($data['forwardIP']) ? '' : 'checked'); 
         $f->label = $this->_('Use forwarded IP?');
         $f->description = $description;
